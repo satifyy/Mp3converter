@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+
+# Runtime artifacts
+uploads/
+output/
+tmp/
+
+# Logs
+npm-debug.log*
+*.log
+
+# IDE
+.vscode/
