@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Video to MP3 Converter</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header>
+        <h1>Video to MP3 Converter</h1>
+        <p>Upload common video formats (MP4, MOV, MKV, WEBM, AVI) and get a downloadable MP3 file.</p>
+      </header>
+
+      <form id="convert-form">
+        <label class="file-input">
+          <span>Select a video file</span>
+          <input id="video-file" type="file" name="video" accept="video/*" required />
+        </label>
+        <button type="submit">Convert to MP3</button>
+      </form>
+
+      <section id="status" class="status" aria-live="polite"></section>
+      <div id="progress-wrapper" class="progress-wrapper hidden" aria-live="off">
+        <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+        <span id="progress-label" class="progress-label">0%</span>
+      </div>
+      <section id="result" class="result hidden"></section>
+    </main>
+
+    <footer>
+      <small>Runs locally with FFmpeg and can be deployed to any Node host.</small>
+    </footer>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
