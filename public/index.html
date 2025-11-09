@@ -22,10 +22,26 @@
       </form>
 
       <section id="status" class="status" aria-live="polite"></section>
-      <div id="progress-wrapper" class="progress-wrapper hidden" aria-live="off">
-        <div id="progress-bar" class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
-        <span id="progress-label" class="progress-label">0%</span>
-      </div>
+      <section id="progress-panel" class="progress-panel">
+        <div id="upload-progress" class="progress-group hidden" aria-live="off">
+          <div class="progress-header">
+            <span>Upload</span>
+            <span id="upload-label" class="progress-label">0%</span>
+          </div>
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="upload-bar" class="progress-bar"></div>
+          </div>
+        </div>
+        <div id="conversion-progress" class="progress-group hidden" aria-live="off">
+          <div class="progress-header">
+            <span>Conversion</span>
+            <span id="conversion-label" class="progress-label">0%</span>
+          </div>
+          <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="conversion-bar" class="progress-bar"></div>
+          </div>
+        </div>
+      </section>
       <section id="result" class="result hidden"></section>
     </main>
 

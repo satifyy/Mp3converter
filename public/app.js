@@ -3,9 +3,12 @@ const fileInput = document.getElementById('video-file');
 const statusBox = document.getElementById('status');
 const resultBox = document.getElementById('result');
 const fileLabel = document.querySelector('.file-input span');
-const progressWrapper = document.getElementById('progress-wrapper');
-const progressBar = document.getElementById('progress-bar');
-const progressLabel = document.getElementById('progress-label');
+const uploadGroup = document.getElementById('upload-progress');
+const conversionGroup = document.getElementById('conversion-progress');
+const uploadBar = document.getElementById('upload-bar');
+const conversionBar = document.getElementById('conversion-bar');
+const uploadLabel = document.getElementById('upload-label');
+const conversionLabel = document.getElementById('conversion-label');
 
 const setStatus = (message, type = '') => {
   statusBox.textContent = message;
@@ -25,21 +28,27 @@ const clearResult = () => {
   resultBox.classList.add('hidden');
 };
 
+const hideGroup = (group) => group.classList.add('hidden');
+const showGroup = (group) => group.classList.remove('hidden');
+
+const setProgress = (barElement, labelElement, value) => {
+  const percent = Math.max(0, Math.min(100, Math.round(value)));
+  barElement.style.width = `${percent}%`;
+  labelElement.textContent = `${percent}%`;
+  const track = barElement.parentElement;
+  if (track) {
+    track.setAttribute('aria-valuenow', String(percent));
+  }
+};
+
 const resetProgress = () => {
-  progressWrapper.classList.add('hidden');
-  progressBar.style.width = '0%';
-  progressLabel.textContent = '0%';
-  progressBar.setAttribute('aria-valuenow', '0');
+  hideGroup(uploadGroup);
+  hideGroup(conversionGroup);
+  setProgress(uploadBar, uploadLabel, 0);
+  setProgress(conversionBar, conversionLabel, 0);
 };
 
-const updateProgress = (value) => {
-  progressWrapper.classList.remove('hidden');
-  progressBar.style.width = `${value}%`;
-  progressLabel.textContent = `${value}%`;
-  progressBar.setAttribute('aria-valuenow', String(value));
-};
-
-const uploadWithProgress = (formData) =>
+const uploadWithProgress = ({ formData, onUploadProgress, onUploadComplete }) =>
   new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/convert');
@@ -47,8 +56,12 @@ const uploadWithProgress = (formData) =>
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
-        updateProgress(percent);
+        onUploadProgress?.(percent);
       }
+    };
+
+    xhr.upload.onload = () => {
+      onUploadComplete?.();
     };
 
     xhr.onreadystatechange = () => {
@@ -70,6 +83,42 @@ const uploadWithProgress = (formData) =>
     xhr.send(formData);
   });
 
+const startConversionPolling = (jobId, onUpdate) => {
+  let cancelled = false;
+
+  const poll = async () => {
+    if (cancelled) return;
+    try {
+      const response = await fetch(`/api/progress/${jobId}`);
+      if (response.ok) {
+        const payload = await response.json();
+        onUpdate(payload);
+        if (payload.status === 'completed' || payload.status === 'error') {
+          return;
+        }
+      }
+    } catch {
+      // Ignore polling errors and try again.
+    }
+    if (!cancelled) {
+      setTimeout(poll, 750);
+    }
+  };
+
+  poll();
+
+  return () => {
+    cancelled = true;
+  };
+};
+
+const getJobId = () => {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `job-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
+
 fileInput.addEventListener('change', () => {
   fileLabel.textContent = fileInput.files[0]?.name || 'Select a video file';
 });
@@ -84,16 +133,36 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
+  const jobId = getJobId();
   const submitBtn = form.querySelector('button[type="submit"]');
   submitBtn.disabled = true;
-  setStatus('Uploading and converting... this can take a moment.');
+  setStatus('Uploading your video...', '');
+
+  showGroup(uploadGroup);
+  setProgress(uploadBar, uploadLabel, 0);
 
   const data = new FormData();
   data.append('video', fileInput.files[0]);
+  data.append('jobId', jobId);
+
+  let stopPolling;
 
   try {
-    const payload = await uploadWithProgress(data);
-    updateProgress(100);
+    const payload = await uploadWithProgress({
+      formData: data,
+      onUploadProgress: (value) => setProgress(uploadBar, uploadLabel, value),
+      onUploadComplete: () => {
+        setProgress(uploadBar, uploadLabel, 100);
+        setStatus('Upload complete. Converting...', '');
+        showGroup(conversionGroup);
+        setProgress(conversionBar, conversionLabel, 0);
+        stopPolling = startConversionPolling(jobId, ({ progress = 0 }) => {
+          showGroup(conversionGroup);
+          setProgress(conversionBar, conversionLabel, progress);
+        });
+      },
+    });
+    setProgress(conversionBar, conversionLabel, 100);
     setStatus('Conversion complete!', 'success');
     setResult(
       `<p class="success">Your MP3 is ready.</p>
@@ -104,5 +173,8 @@ form.addEventListener('submit', async (event) => {
     resetProgress();
   } finally {
     submitBtn.disabled = false;
+    if (stopPolling) {
+      stopPolling();
+    }
   }
 });

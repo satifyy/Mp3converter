@@ -15,6 +15,25 @@ const UPLOAD_DIR = path.join(ROOT_DIR, 'uploads');
 const OUTPUT_DIR = path.join(ROOT_DIR, 'output');
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 
+const JOB_TTL_MS = 15 * 60 * 1000;
+const jobProgress = new Map();
+
+const scheduleCleanup = (jobId) => {
+  const timeout = setTimeout(() => jobProgress.delete(jobId), JOB_TTL_MS);
+  if (typeof timeout.unref === 'function') {
+    timeout.unref();
+  }
+};
+
+const updateJobProgress = (jobId, data) => {
+  if (!jobId) return;
+  const current = jobProgress.get(jobId) || {};
+  jobProgress.set(jobId, { ...current, ...data, updatedAt: Date.now() });
+  if (data.status && ['completed', 'error'].includes(data.status)) {
+    scheduleCleanup(jobId);
+  }
+};
+
 // Ensure directories exist before handling requests.
 for (const dir of [UPLOAD_DIR, OUTPUT_DIR]) {
   if (!fs.existsSync(dir)) {
@@ -56,12 +75,25 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-const convertToMp3 = (inputPath, outputPath) =>
+app.get('/api/progress/:jobId', (req, res) => {
+  const status = jobProgress.get(req.params.jobId);
+  if (!status) {
+    return res.status(404).json({ status: 'unknown', progress: 0 });
+  }
+  return res.json(status);
+});
+
+const convertToMp3 = (inputPath, outputPath, jobId) =>
   new Promise((resolve, reject) => {
     ffmpeg(inputPath)
       .format('mp3')
       .audioCodec('libmp3lame')
       .audioBitrate('192k')
+      .on('progress', (progress) => {
+        if (!jobId) return;
+        const percent = progress.percent ? Math.min(99, Math.round(progress.percent)) : 0;
+        updateJobProgress(jobId, { status: 'converting', progress: percent });
+      })
       .on('end', resolve)
       .on('error', reject)
       .save(outputPath);
@@ -72,14 +104,27 @@ app.post('/api/convert', upload.single('video'), async (req, res) => {
     return res.status(400).json({ error: 'Video file is required.' });
   }
 
+  const jobId = req.body?.jobId;
+  if (!jobId) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(400).json({ error: 'Job identifier is required.' });
+  }
+
   const originalBase = path.parse(req.file.originalname).name;
   const safeBase = originalBase.replace(/[^a-z0-9_-]/gi, '_').slice(0, 40) || 'audio';
   const outputName = `${safeBase}-${Date.now()}.mp3`;
   const outputPath = path.join(OUTPUT_DIR, outputName);
 
   try {
-    await convertToMp3(req.file.path, outputPath);
+    updateJobProgress(jobId, { status: 'pending', progress: 0 });
+    await convertToMp3(req.file.path, outputPath, jobId);
     fs.unlink(req.file.path, () => {});
+    updateJobProgress(jobId, {
+      status: 'completed',
+      progress: 100,
+      downloadUrl: `/output/${outputName}`,
+      file: outputName,
+    });
     res.json({
       message: 'Conversion successful',
       file: outputName,
@@ -90,6 +135,11 @@ app.post('/api/convert', upload.single('video'), async (req, res) => {
     if (fs.existsSync(outputPath)) {
       fs.unlink(outputPath, () => {});
     }
+    updateJobProgress(jobId, {
+      status: 'error',
+      error: error.message || 'Conversion failed',
+      progress: jobProgress.get(jobId)?.progress ?? 0,
+    });
     res.status(500).json({ error: error.message || 'Conversion failed' });
   }
 });
